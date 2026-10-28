@@ -1,0 +1,56 @@
+name: DV WIMC Android - APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android SDK (plataforma 35 + build-tools)
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+
+      - name: Compilar APK (release firmado con clave fija)
+        shell: bash
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Nombre estable del APK
+        shell: bash
+        run: |
+          ls -la app/build/outputs/apk/release/
+          cp app/build/outputs/apk/release/app-release.apk DV-WIMC.apk
+
+      - name: Guardar log si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Publicar en Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "wimc-android-v${{ github.run_number }}" DV-WIMC.apk \
+            --title "DV WIMC Android v${{ github.run_number }}" \
+            --notes "APK listo para instalar. Se puede instalar encima de la version anterior (misma firma). Commit: ${{ github.sha }}"
